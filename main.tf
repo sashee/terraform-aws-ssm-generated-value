@@ -63,7 +63,8 @@ resource "aws_lambda_function" "generate_value" {
   role    = aws_iam_role.generate_value_exec.arn
 	depends_on = [
 		# so that the delete permission is still there during destroy
-    aws_iam_role_policy.generate_value
+    aws_iam_role_policy.generate_value,
+    aws_iam_role_policy.extra_permissions,
   ]
 }
 
@@ -126,4 +127,10 @@ resource "aws_iam_role" "generate_value_exec" {
   ]
 }
 EOF
+}
+
+resource "aws_iam_role_policy" "extra_permissions" {
+	count = var.extra_permissions == null ? 0 : 1
+  role   = aws_iam_role.generate_value_exec.id
+  policy = var.extra_permissions
 }
