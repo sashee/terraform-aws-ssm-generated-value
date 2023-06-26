@@ -11,13 +11,16 @@ module "cf_key" {
     source  = "sashee/ssm-generated-value/aws"
     parameter_name = "/cfkey-${random_id.id.hex}"
     code = <<EOF
-export const generate = async (event) => {
+export const generate = async () => {
 	return {
 		value: ...,
 		outputs: {
 			...
 		}
 	};
+}
+export const cleanup = async () => {
+    // ...
 }
 EOF
 }
@@ -57,6 +60,8 @@ export const generate = async (event) => {
 		}
 	};
 }
+
+export const cleanup = () => {};
 EOF
 }
 

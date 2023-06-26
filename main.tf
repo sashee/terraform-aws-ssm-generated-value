@@ -22,7 +22,7 @@ data "archive_file" "generate_value" {
 import crypto from "node:crypto";
 import {SSMClient, PutParameterCommand, DeleteParameterCommand} from "@aws-sdk/client-ssm";
 import {promisify} from "node:util";
-import {generate} from "./code.mjs";
+import {generate, cleanup} from "./code.mjs";
 
 export const handler = async (event) => {
 	const parameterName = process.env.SSM_PARAMETER;
@@ -31,6 +31,7 @@ export const handler = async (event) => {
 		await client.send(new DeleteParameterCommand({
 			Name: parameterName,
 		}));
+		await cleanup();
 	}
 	if (event.tf.action === "create") {
 		const {value, outputs} = await generate();

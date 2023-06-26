@@ -5,5 +5,5 @@ variable "parameter_name" {
 
 variable "code" {
   type = string
-	description = "A Javascript source that exports a generate() function"
+	description = "A Javascript source that exports a generate() and a cleanup() function"
 }
