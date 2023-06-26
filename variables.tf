@@ -8,8 +8,8 @@ variable "code" {
 	description = "A Javascript source that exports a generate() and a cleanup() function"
 }
 
-variable "extra_permissions" {
-  type = string
-	default = null
-	description = "JSON with the statements that will be attached to the function's role"
+variable "extra_statements" {
+	type = list(any)
+	default = []
+	description = "JSON statements that will be attached to the function's role"
 }

@@ -64,7 +64,6 @@ resource "aws_lambda_function" "generate_value" {
 	depends_on = [
 		# so that the delete permission is still there during destroy
     aws_iam_role_policy.generate_value,
-    aws_iam_role_policy.extra_permissions,
   ]
 }
 
@@ -81,27 +80,6 @@ resource "aws_lambda_invocation" "generate_value" {
   }
 }
 
-data "aws_iam_policy_document" "generate_value" {
-  statement {
-    actions = [
-      "logs:CreateLogStream",
-      "logs:PutLogEvents"
-    ]
-    resources = [
-      "arn:aws:logs:*:*:*"
-    ]
-  }
-  statement {
-    actions = [
-      "ssm:PutParameter",
-      "ssm:DeleteParameter",
-    ]
-    resources = [
-			local.parameterArn
-    ]
-  }
-}
-
 resource "aws_cloudwatch_log_group" "generate_value" {
   name              = "/aws/lambda/${aws_lambda_function.generate_value.function_name}"
   retention_in_days = 14
@@ -109,7 +87,29 @@ resource "aws_cloudwatch_log_group" "generate_value" {
 
 resource "aws_iam_role_policy" "generate_value" {
   role   = aws_iam_role.generate_value_exec.id
-  policy = data.aws_iam_policy_document.generate_value.json
+	policy = jsonencode(
+{
+  "Version": "2012-10-17",
+	"Statement": concat([
+{
+	"Action": [
+		"logs:CreateLogStream",
+		"logs:PutLogEvents"
+	],
+	"Resource": "arn:aws:logs:*:*:*"
+	"Effect": "Allow"
+},
+{
+	"Action": [
+		"ssm:PutParameter",
+		"ssm:DeleteParameter",
+	],
+	"Resource": local.parameterArn
+	"Effect": "Allow"
+}
+	], var.extra_statements == null ? [] : var.extra_statements)
+}
+	)
 }
 
 resource "aws_iam_role" "generate_value_exec" {
@@ -129,8 +129,3 @@ resource "aws_iam_role" "generate_value_exec" {
 EOF
 }
 
-resource "aws_iam_role_policy" "extra_permissions" {
-	count = var.extra_permissions == null ? 0 : 1
-  role   = aws_iam_role.generate_value_exec.id
-  policy = var.extra_permissions
-}

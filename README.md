@@ -133,22 +133,16 @@ export const cleanup = async () => {
 	}));
 }
 EOF
-	extra_permissions = <<EOF
+	extra_statements = [
 {
-	"Version": "2012-10-17",
-	"Statement": [
-		{
-			"Action": [
-				"iam:CreateAccessKey",
-				"iam:ListAccessKeys",
-				"iam:DeleteAccessKey"
-			],
-			"Effect": "Allow",
-			"Resource": "${aws_iam_user.signer.arn}"
-		}
-	]
-}
-EOF
+	"Action": [
+		"iam:CreateAccessKey",
+		"iam:ListAccessKeys",
+		"iam:DeleteAccessKey"
+	],
+	"Effect": "Allow",
+	"Resource": aws_iam_user.signer.arn
+}]
 }
 ```
 
