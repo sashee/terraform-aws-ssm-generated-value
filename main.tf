@@ -7,43 +7,22 @@ resource "random_id" "id" {
 }
 
 locals {
-	parameterArn = "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter/${trimprefix(var.parameter_name, "/")}"
+  parameterArn = "arn:${data.aws_partition.current.partition}:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter/${trimprefix(var.parameter_name, "/")}"
 }
 
 data "archive_file" "generate_value" {
   type        = "zip"
   output_path = "/tmp/ssm-generated-value-module-${random_id.id.hex}.zip"
-	source {
+  source {
     content  = var.code
     filename = "code.mjs"
   }
-	source {
-    content  = <<EOF
-import crypto from "node:crypto";
-import {SSMClient, PutParameterCommand, DeleteParameterCommand} from "@aws-sdk/client-ssm";
-import {promisify} from "node:util";
-import {generate, cleanup} from "./code.mjs";
-
-export const handler = async (event) => {
-	const parameterName = process.env.SSM_PARAMETER;
-	const client = new SSMClient();
-	if (event.tf.action === "delete") {
-		await client.send(new DeleteParameterCommand({
-			Name: parameterName,
-		}));
-		await cleanup();
-	}
-	if (event.tf.action === "create") {
-		const {value, outputs} = await generate();
-		await client.send(new PutParameterCommand({
-			Name: parameterName,
-			Value: value,
-			Type: "SecureString",
-		}));
-		return outputs;
-	}
-}
-EOF
+  source {
+    content  = file("${path.module}/client.mjs")
+    filename = "client.mjs"
+  }
+  source {
+    content  = file("${path.module}/index.mjs")
     filename = "index.mjs"
   }
 }
@@ -52,29 +31,35 @@ resource "aws_lambda_function" "generate_value" {
   function_name    = "ssm-generated-value-module-${random_id.id.hex}"
   filename         = data.archive_file.generate_value.output_path
   source_code_hash = data.archive_file.generate_value.output_base64sha256
-  timeout = 30
-  handler = "index.handler"
-  runtime = "nodejs18.x"
+  timeout          = 30
+  handler          = "index.handler"
+  runtime          = "nodejs18.x"
   environment {
     variables = {
-      SSM_PARAMETER: var.parameter_name,
+      PARAMETER_NAME : (var.use_secrets_manager ? aws_secretsmanager_secret.secret[0].id : var.parameter_name),
+      USE_SECRETS_MANAGER : var.use_secrets_manager,
     }
   }
-  role    = aws_iam_role.generate_value_exec.arn
-	depends_on = [
-		# so that the delete permission is still there during destroy
+  role = aws_iam_role.generate_value_exec.arn
+  depends_on = [
+    # so that the delete permission is still there during destroy
     aws_iam_role_policy.generate_value,
   ]
+}
+
+resource "aws_secretsmanager_secret" "secret" {
+  count = var.use_secrets_manager ? 1 : 0
+  name = var.parameter_name
 }
 
 resource "aws_lambda_invocation" "generate_value" {
   function_name = aws_lambda_function.generate_value.function_name
 
-  input = "{}"
-	lifecycle_scope = "CRUD"
-	triggers = {
-		
-	}
+  input           = "{}"
+  lifecycle_scope = "CRUD"
+  triggers = {
+
+  }
   lifecycle {
     replace_triggered_by = [aws_lambda_function.generate_value]
   }
@@ -85,31 +70,55 @@ resource "aws_cloudwatch_log_group" "generate_value" {
   retention_in_days = 14
 }
 
+data "aws_iam_policy_document" "logs" {
+  statement {
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+
+    resources = [
+      "arn:aws:logs:*:*:*"
+    ]
+  }
+}
+
+data "aws_iam_policy_document" "ssm" {
+statement {
+  actions = [
+    "ssm:PutParameter",
+    "ssm:DeleteParameter",
+  ]
+
+  resources = [
+    local.parameterArn
+  ]
+  }
+}
+
+data "aws_iam_policy_document" "secrets_manager" {
+  statement {
+  actions = [
+    "secretsmanager:DeleteSecret",
+    "secretsmanager:PutSecretValue",
+  ]
+
+  resources = [
+      try(aws_secretsmanager_secret.secret[0].arn, null)
+    ]
+  }
+}
+
+data "aws_iam_policy_document" "merge" {
+  source_policy_documents = [
+    data.aws_iam_policy_document.logs.json,
+    (var.use_secrets_manager ? data.aws_iam_policy_document.secrets_manager.json : data.aws_iam_policy_document.ssm.json)
+  ]
+}
+
 resource "aws_iam_role_policy" "generate_value" {
   role   = aws_iam_role.generate_value_exec.id
-	policy = jsonencode(
-{
-  "Version": "2012-10-17",
-	"Statement": concat([
-{
-	"Action": [
-		"logs:CreateLogStream",
-		"logs:PutLogEvents"
-	],
-	"Resource": "arn:aws:logs:*:*:*"
-	"Effect": "Allow"
-},
-{
-	"Action": [
-		"ssm:PutParameter",
-		"ssm:DeleteParameter",
-	],
-	"Resource": local.parameterArn
-	"Effect": "Allow"
-}
-	], var.extra_statements == null ? [] : var.extra_statements)
-}
-	)
+  policy = data.aws_iam_policy_document.merge.json
 }
 
 resource "aws_iam_role" "generate_value_exec" {
